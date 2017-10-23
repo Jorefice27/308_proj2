@@ -129,6 +129,8 @@ void *processRequest(void *arg)
 {
 	int i;
 	int id = *((int *) arg);
+	usleep(15000000);
+	printf("thread %d starting\n", id);
 	while(!end)
 	{
 		pthread_mutex_lock(&mut);
@@ -138,7 +140,7 @@ void *processRequest(void *arg)
 			pthread_cond_wait(&list_cv, &mut);
 		}
 		Request r = pop(&head);
-
+		printf("thread %d handling request %d\n", id, r.requestID);
     char *token = strtok(r.request, " ");
     if(strcmp(token, "CHECK") == 0 && r.numArgs == 2)
     {
@@ -155,6 +157,7 @@ void *processRequest(void *arg)
     }
 
     pthread_mutex_unlock(&mut);
+		usleep(1500000);
 	}
 }
 
@@ -275,7 +278,6 @@ void addToEnd(Request *head, int id, int numArgs, char* request)
 	temp->next = head;
 	head->prev = temp;
 	head->requestID++;
-  printf("-----------------------------------------------\n");
   // printf("head.next.id = %d and head.next.request = %s\n", head->next->requestID, head->next->request);
 	// printf("head.prev.id = %d and head.prev.request = %s\n", head->prev->requestID, head->prev->request);
 
