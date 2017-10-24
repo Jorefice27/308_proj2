@@ -6,12 +6,12 @@
 #include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
-// #include <file.io>
+#include <sys/time.h>
 
 /*
 *	Make sure to add some validation for unexpected inputs later on
+* Check if I need to allow a single TRANS to affect the same account multiple times
 * Will I need to do anything to prevent writter starvation with the linked list?
-* Does numRequests need protection?
 
 * Basic strategy is to make a struct that has its own mutext and that'll have the
 * account number in it. Then only access the accounts through that
@@ -27,7 +27,12 @@
 	if(head.requestID == 0 && end) pthread_cond_broadcast(&end_cv);
 
 	How to make sure end doesn't exit until AFTER the request is finished?
+	give each thread a boolean value that's set when it's working.
+	If the list is empty && the user has typed in end, we can start killing
+	off every thread that isn't currently processing a request
+	https://stackoverflow.com/questions/13285375/how-to-kill-a-running-thread
 */
+
 
 void *processRequest(void *);
 void *mainThread(void *);
@@ -46,8 +51,8 @@ int numRequests;
 bool end;
 
 int parseRequest(char* input, char* request);
-void processCheckRequest(int requestID, char* accountId);
-void processTransactionRequest(int requestID);
+void processCheckRequest(int requestID, char* accountId, struct timeval t1);
+void processTransactionRequest(int requestID, struct timeval t1);
 void closeServer();
 void initThreadStuff();
 FILE *fp;
@@ -59,6 +64,7 @@ typedef struct Request
 	struct Request *prev;
 	int numArgs;
 	char* request;
+	struct timeval t;
 } Request;
 
 Request head = {0, NULL, NULL, 0};
@@ -135,7 +141,6 @@ void *mainThread(void *arg)
       int numArgs = parseRequest(input, request);
 			if(strcmp(request, "END") == 0)
 	    {
-				printf("No more user input will be accepted but all submitted requests will be completed.\n");
 				end = true;
 	      break;
 	    }
@@ -146,6 +151,12 @@ void *mainThread(void *arg)
     }
 
 		free(input);
+	}
+
+	printf("No more user input will be accepted but all submitted requests will be completed.\n");
+	while(head.requestID != 0)
+	{
+		pthread_cond_wait(&list_cv, &mut);
 	}
 }
 
@@ -168,16 +179,16 @@ void *processRequest(void *arg)
     char *token = strtok(r.request, " ");
     if(strcmp(token, "CHECK") == 0 && r.numArgs == 2)
     {
-      processCheckRequest(r.requestID, strtok(NULL, " "));
+      processCheckRequest(r.requestID, strtok(NULL, " "), r.t);
     }
     else if(strcmp(token, "TRANS") == 0)
     {
-			processTransactionRequest(r.requestID);
+			processTransactionRequest(r.requestID, r.t);
     }
 	}
 }
 
-void processCheckRequest(int requestID, char *accountId)
+void processCheckRequest(int requestID, char *accountId, struct timeval t1)
 {
   if(accountId != NULL)
   {
@@ -189,14 +200,19 @@ void processCheckRequest(int requestID, char *accountId)
 	    int bal = read_account(id);
 			pthread_mutex_unlock(&account_muts[id-1]);
 			printf("Unlocking account %d\n", id);
+			struct timeval t2;
+			gettimeofday(&t2, NULL);
+			double t = t2.tv_sec + ((double) t2.tv_usec / 1000000);
+			t -= t1.tv_sec;
+			t -= ((double) t1.tv_usec / 1000000);
 			fp = fopen(filename, "a");
-			fprintf(fp, "<%d> BAL <$%d>\n", requestID, bal);
+			fprintf(fp, "<%d> BAL <$%d> TIME %f\n", requestID, bal, t);
 			fclose(fp);
 		}
   }
 }
 
-void processTransactionRequest(int requestID)
+void processTransactionRequest(int requestID, struct timeval t1)
 {
 	int orig[10][2];
 	int accounts[10][2]; //probably sort this list to avoid deadlock
@@ -231,6 +247,11 @@ void processTransactionRequest(int requestID)
 		}
 		write_account(accounts[i][0], bal);
 	}
+	struct timeval t2;
+	gettimeofday(&t2, NULL);
+	double t = t2.tv_sec + ((double) t2.tv_usec / 1000000);
+	t -= t1.tv_sec;
+	t -= ((double) t1.tv_usec / 1000000);
 
 	if(err > 0)
 	{
@@ -240,13 +261,13 @@ void processTransactionRequest(int requestID)
 			write_account(orig[i][0], orig[i][1]);
 		}
 		fp = fopen(filename, "a");
-		fprintf(fp, "<%d> ISF <%d>\n", requestID, err);
+		fprintf(fp, "<%d> ISF <%d> TIME %f\n", requestID, err, t);
 		fclose(fp);
 	}
 	else
 	{
 		fp = fopen(filename, "a");
-		fprintf(fp, "<%d> OK\n", requestID);
+		fprintf(fp, "<%d> OK TIME %f\n", requestID, t);
 		fclose(fp);
 	}
 	//unlock the mutexes
@@ -299,6 +320,7 @@ void addToEnd(Request *head, int id, int numArgs, char* request)
   temp->requestID = id;
 	temp->numArgs = numArgs;
 	temp->request = request;
+	gettimeofday(&temp->t, NULL);
 
 
   head->prev->next = temp;
@@ -318,6 +340,7 @@ void addToEmpty(Request *head, int id, int numArgs, char* request)
   temp->requestID = id;
   temp->numArgs = numArgs;
   temp->request = request;
+	gettimeofday(&temp->t, NULL);
 
 	head->next = temp;
 	head->prev = temp;
