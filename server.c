@@ -13,6 +13,9 @@
 * We'll need a mutex for the linked list and we'll need one for each bank account
 * Will I need to do anything to prevent writter starvation with the linked list?
 * Does numRequests need protection?
+
+* Basic strategy is to make a struct that has its own mutext and that'll have the
+* account number in it. Then only access the accounts through that
 */
 
 void *processRequest(void *);
@@ -22,7 +25,7 @@ void *mainThread(void *);
 // pthread_cond_t linked_list_cv;
 pthread_cond_t list_cv;
 pthread_mutex_t mut;
-
+pthread_mutex_t *account_muts;
 int j;
 const int REQUEST_SIZE = 1000;
 int numWorkers;
@@ -61,13 +64,13 @@ int main(int argc, char **argv)
 	filename = argv[3];
 	numRequests = 0;
 	end = false;
-	printf("Num worker_tid = %d\n", numWorkers);
-	printf("Num accounts = %d\n", numAccounts);
-	printf("Filename = %s\n", filename);
+
 	fp = fopen(filename, "w");
 	fclose(fp);
+
 	pthread_t worker_tid[numWorkers];
   pthread_t main_tid;
+	account_muts = malloc(sizeof(*account_muts) * numAccounts);
 	int thread_index[numWorkers];
 	int i;
 
@@ -113,10 +116,10 @@ void *mainThread(void *arg)
 		fgets(input, REQUEST_SIZE, stdin);
     if(input[0] != 10) //as long as it's not just a new line feed
 		{
-      printf("ID %d\n", ++numRequests);
+      printf("ID %d\n", numRequests + 1);
       int numArgs = parseRequest(input, request);
   		pthread_mutex_lock(&mut);
-  		addToEnd(&head, numRequests, numArgs, request);
+  		addToEnd(&head, ++numRequests, numArgs, request);
   		pthread_mutex_unlock(&mut);
 		  // printf("Request ID %d is %s\n", head.next->requestID, head.next->request);
     }
@@ -129,7 +132,6 @@ void *processRequest(void *arg)
 {
 	int i;
 	int id = *((int *) arg);
-	usleep(15000000);
 	printf("thread %d starting\n", id);
 	while(!end)
 	{
@@ -140,6 +142,7 @@ void *processRequest(void *arg)
 			pthread_cond_wait(&list_cv, &mut);
 		}
 		Request r = pop(&head);
+		pthread_mutex_unlock(&mut);
 		printf("thread %d handling request %d\n", id, r.requestID);
     char *token = strtok(r.request, " ");
     if(strcmp(token, "CHECK") == 0 && r.numArgs == 2)
@@ -155,9 +158,6 @@ void *processRequest(void *arg)
     {
 			processTransactionRequest(r.requestID);
     }
-
-    pthread_mutex_unlock(&mut);
-		usleep(1500000);
 	}
 }
 
