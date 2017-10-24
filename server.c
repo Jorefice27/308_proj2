@@ -10,12 +10,23 @@
 
 /*
 *	Make sure to add some validation for unexpected inputs later on
-* We'll need a mutex for the linked list and we'll need one for each bank account
 * Will I need to do anything to prevent writter starvation with the linked list?
 * Does numRequests need protection?
 
 * Basic strategy is to make a struct that has its own mutext and that'll have the
 * account number in it. Then only access the accounts through that
+*/
+
+/*
+	User types in END
+	While in main thread ends
+	main =>
+	pthread_cond_wait(&end_cv);
+	exit(0)
+	pop =>
+	if(head.requestID == 0 && end) pthread_cond_broadcast(&end_cv);
+
+	How to make sure end doesn't exit until AFTER the request is finished?
 */
 
 void *processRequest(void *);
@@ -113,7 +124,7 @@ void *mainThread(void *arg)
 	}
 
 	printf("Enter requests below\n");
-	while(!end)
+	while(true)
 	{
 		char* input = (char*) malloc(REQUEST_SIZE);
 		char* request = (char*) malloc(REQUEST_SIZE);
@@ -122,6 +133,12 @@ void *mainThread(void *arg)
 		{
       printf("ID %d\n", numRequests + 1);
       int numArgs = parseRequest(input, request);
+			if(strcmp(request, "END") == 0)
+	    {
+				printf("No more user input will be accepted but all submitted requests will be completed.\n");
+				end = true;
+	      break;
+	    }
   		pthread_mutex_lock(&mut);
   		addToEnd(&head, ++numRequests, numArgs, request);
   		pthread_mutex_unlock(&mut);
@@ -137,7 +154,7 @@ void *processRequest(void *arg)
 	int i;
 	int id = *((int *) arg);
 	printf("thread %d starting\n", id);
-	while(!end)
+	while(true)
 	{
 		pthread_mutex_lock(&mut);
 		while(head.requestID == 0)
@@ -152,11 +169,6 @@ void *processRequest(void *arg)
     if(strcmp(token, "CHECK") == 0 && r.numArgs == 2)
     {
       processCheckRequest(r.requestID, strtok(NULL, " "));
-    }
-		else if(strcmp(token, "END") == 0)
-    {
-      //this doesn't do what it's supposed to so fix it
-      end = true;
     }
     else if(strcmp(token, "TRANS") == 0)
     {
@@ -220,26 +232,6 @@ void processTransactionRequest(int requestID)
 		write_account(accounts[i][0], bal);
 	}
 
-	// while(token != NULL)
-	// {
-	// 	int accountId = atoi(token);
-	// 	token = strtok(NULL, " ");
-	// 	int amt = atoi(token);
-	// 	token = strtok(NULL, " ");
-	// 	int bal = read_account(accountId);
-	// 	orig[i][0] = accountId;
-	// 	orig[i++][1] = bal;
-	// 	bal += amt;
-	// 	if(bal <= 0)
-	// 	{
-	// 		err = accountId;
-	// 		break;
-	//
-	// 	}
-	//
-	// 	write_account(accountId, bal);
-	// }
-
 	if(err > 0)
 	{
 		//reset the original balances
@@ -294,13 +286,6 @@ int parseRequest(char* input, char* request)
 	}
 	return numArgs;
 }
-
-// void writef(char* text)
-// {
-// 	fp = fopen(filename, "a");
-// 	fprintf(fp, "%s\n", text);
-// 	fclose(fp);
-// }
 
 void addToEnd(Request *head, int id, int numArgs, char* request)
 {
