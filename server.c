@@ -58,7 +58,6 @@ Request pop(Request *head);
 
 int main(int argc, char **argv)
 {
-	initThreadStuff();
 	numWorkers = atoi(argv[1]); //pareseInt()
 	numAccounts = atoi(argv[2]);
 	filename = argv[3];
@@ -68,9 +67,10 @@ int main(int argc, char **argv)
 	fp = fopen(filename, "w");
 	fclose(fp);
 
+	account_muts = malloc(sizeof(*account_muts) * numAccounts);
+	initThreadStuff();
 	pthread_t worker_tid[numWorkers];
   pthread_t main_tid;
-	account_muts = malloc(sizeof(*account_muts) * numAccounts);
 	int thread_index[numWorkers];
 	int i;
 
@@ -86,7 +86,6 @@ int main(int argc, char **argv)
 	for(i = 0; i < numWorkers; i++)
 	{
     pthread_join(worker_tid[i], NULL);
-    printf("joined thread %d\n", i);
 	}
 
   printf("closing server\n");
@@ -96,7 +95,11 @@ void initThreadStuff()
 {
 	pthread_mutex_init(&mut, NULL);
 	pthread_cond_init(&list_cv, NULL);
-	printf("inited\n");
+	int i;
+	for(i = 0; i < numAccounts; i++)
+	{
+		pthread_mutex_init(&account_muts[i], NULL);
+	}
 }
 
 void *mainThread(void *arg)
@@ -109,6 +112,7 @@ void *mainThread(void *arg)
 		account_ids[i] = i + 1;
 	}
 
+	printf("Enter requests below\n");
 	while(!end)
 	{
 		char* input = (char*) malloc(REQUEST_SIZE);
@@ -168,7 +172,11 @@ void processCheckRequest(int requestID, char *accountId)
     int id = atoi(accountId);
 		if(id > 0 && id <= numAccounts)
 		{
+			printf("Locking account %d\n", id);
+			pthread_mutex_lock(&account_muts[id-1]);
 	    int bal = read_account(id);
+			pthread_mutex_unlock(&account_muts[id-1]);
+			printf("Unlocking account %d\n", id);
 			fp = fopen(filename, "a");
 			fprintf(fp, "<%d> BAL <$%d>\n", requestID, bal);
 			fclose(fp);
@@ -179,28 +187,58 @@ void processCheckRequest(int requestID, char *accountId)
 void processTransactionRequest(int requestID)
 {
 	int orig[10][2];
+	int accounts[10][2]; //probably sort this list to avoid deadlock
 	int i = 0;
 	int err = -1;
+	int length = 0;
 	char *token = strtok(NULL, " ");
+	//lock the mutex for each account and save the transaction for later
 	while(token != NULL)
 	{
-		int accountId = atoi(token);
+		accounts[i][0] = atoi(token); //accountId
 		token = strtok(NULL, " ");
-		int amt = atoi(token);
+		accounts[i][1] = atoi(token); //transaction amount
 		token = strtok(NULL, " ");
-		int bal = read_account(accountId);
-		orig[i][0] = accountId;
-		orig[i++][1] = bal;
-		bal += amt;
+		pthread_mutex_lock(&account_muts[accounts[i][0]-1]);
+		i++;
+		printf("Locked account %d\n", i);
+		length ++;
+	}
+
+	for(i = 0; i < length; i++)
+	{
+		orig[i][0] = accounts[i][0];
+		int bal = read_account(accounts[i][0]);
+		orig[i][1] = bal;
+		printf("Account %d has an original balance of %d and we're about to add %d\n", orig[i][0], orig[i][1], accounts[i][1]);
+		bal += accounts[i][1];
 		if(bal <= 0)
 		{
-			err = accountId;
+			err = accounts[i][0];
 			break;
-
 		}
-
-		write_account(accountId, bal);
+		write_account(accounts[i][0], bal);
 	}
+
+	// while(token != NULL)
+	// {
+	// 	int accountId = atoi(token);
+	// 	token = strtok(NULL, " ");
+	// 	int amt = atoi(token);
+	// 	token = strtok(NULL, " ");
+	// 	int bal = read_account(accountId);
+	// 	orig[i][0] = accountId;
+	// 	orig[i++][1] = bal;
+	// 	bal += amt;
+	// 	if(bal <= 0)
+	// 	{
+	// 		err = accountId;
+	// 		break;
+	//
+	// 	}
+	//
+	// 	write_account(accountId, bal);
+	// }
 
 	if(err > 0)
 	{
@@ -218,6 +256,11 @@ void processTransactionRequest(int requestID)
 		fp = fopen(filename, "a");
 		fprintf(fp, "<%d> OK\n", requestID);
 		fclose(fp);
+	}
+	//unlock the mutexes
+	for(i = 0; i < length; i++)
+	{
+		pthread_mutex_unlock(&account_muts[accounts[i][0]-1]);
 	}
 }
 
