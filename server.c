@@ -40,8 +40,10 @@ void *mainThread(void *);
 // pthread_mutex_t mut;
 // pthread_cond_t linked_list_cv;
 pthread_cond_t list_cv;
+pthread_cond_t end_cv;
 pthread_mutex_t mut;
 pthread_mutex_t *account_muts;
+pthread_mutex_t *thread_status;
 int j;
 const int REQUEST_SIZE = 1000;
 int numWorkers;
@@ -53,6 +55,7 @@ bool end;
 int parseRequest(char* input, char* request);
 void processCheckRequest(int requestID, char* accountId, struct timeval t1);
 void processTransactionRequest(int requestID, struct timeval t1);
+void insertionSort(int accounts[10][2], int length);
 void closeServer();
 void initThreadStuff();
 FILE *fp;
@@ -89,13 +92,16 @@ int main(int argc, char **argv)
 	pthread_t worker_tid[numWorkers];
   pthread_t main_tid;
 	int thread_index[numWorkers];
+	thread_status = malloc(sizeof(*thread_status) * numWorkers);
 	int i;
+
 
   pthread_create(&main_tid, NULL, mainThread, NULL);
 	//initialize worker threads
 	for(i = 0; i < numWorkers; i++)
 	{
 		thread_index[i] = i;
+		pthread_mutex_init(&thread_status[i], NULL);
 		pthread_create(&worker_tid[i], NULL, processRequest, (void *)&thread_index[i]);
 	}
 
@@ -112,6 +118,7 @@ void initThreadStuff()
 {
 	pthread_mutex_init(&mut, NULL);
 	pthread_cond_init(&list_cv, NULL);
+	pthread_cond_init(&end_cv, NULL);
 	int i;
 	for(i = 0; i < numAccounts; i++)
 	{
@@ -156,8 +163,15 @@ void *mainThread(void *arg)
 	printf("No more user input will be accepted but all submitted requests will be completed.\n");
 	while(head.requestID != 0)
 	{
-		pthread_cond_wait(&list_cv, &mut);
+		pthread_cond_wait(&end_cv, &mut);
 	}
+
+	for(i = 0; i < numWorkers; i++)
+	{
+		pthread_mutex_lock(&thread_status[i]);
+	}
+	printf("All requests have been completed. Server closing.\n");
+	exit(0);
 }
 
 void *processRequest(void *arg)
@@ -173,6 +187,7 @@ void *processRequest(void *arg)
 			pthread_mutex_unlock(&mut);
 			pthread_cond_wait(&list_cv, &mut);
 		}
+		pthread_mutex_lock(&thread_status[id]);
 		Request r = pop(&head);
 		pthread_mutex_unlock(&mut);
 		printf("thread %d handling request %d\n", id, r.requestID);
@@ -185,6 +200,7 @@ void *processRequest(void *arg)
     {
 			processTransactionRequest(r.requestID, r.t);
     }
+		pthread_mutex_unlock(&thread_status[id]);
 	}
 }
 
@@ -223,16 +239,33 @@ void processTransactionRequest(int requestID, struct timeval t1)
 	//lock the mutex for each account and save the transaction for later
 	while(token != NULL)
 	{
-		accounts[i][0] = atoi(token); //accountId
+		int id = atoi(token);
 		token = strtok(NULL, " ");
-		accounts[i][1] = atoi(token); //transaction amount
+		int amt = atoi(token);
 		token = strtok(NULL, " ");
-		pthread_mutex_lock(&account_muts[accounts[i][0]-1]);
-		i++;
-		printf("Locked account %d\n", i);
-		length ++;
+		int j;
+		bool set = false;
+		for(j = 0; j < i; j++)
+		{
+			if(accounts[j][0] == id)
+			{
+				accounts[j][1] += amt;
+				set = true;
+				j = i;
+			}
+		}
+		if(!set)
+		{
+			accounts[i][0] = id;
+			accounts[i][1] = amt;
+			printf("accounts[%d][0] == %d\n", i, accounts[i][0]);
+			pthread_mutex_lock(&account_muts[accounts[i][0]-1]);
+			i++;
+			printf("Locked account %d\n", i);
+			length ++;
+		}
 	}
-
+	insertionSort(accounts, length);
 	for(i = 0; i < length; i++)
 	{
 		orig[i][0] = accounts[i][0];
@@ -277,9 +310,24 @@ void processTransactionRequest(int requestID, struct timeval t1)
 	}
 }
 
-void closeServer()
+void insertionSort(int accounts[10][2], int length)
 {
+	int i;
+	for(i = 0; i < length; i++)
+	{
+		int id = accounts[i][0];
+		int amt = accounts[i][1];
+		int j = i - 1;
 
+		while(j >= 0 && accounts[j][0] > id)
+		{
+			accounts[j+1][0] = accounts[j][0];
+			accounts[j+1][1] = accounts[j][1];
+			j--;
+		}
+		accounts[j+1][0] = id;
+		accounts[j+1][1] = amt;
+	}
 }
 
 int parseRequest(char* input, char* request)
@@ -360,6 +408,11 @@ Request pop(Request *head)
 		head->next = r.next;
 		head->next->prev = head;
 		head->requestID--;
+
+		if(head->requestID == 0 && end)
+		{
+			pthread_cond_broadcast(&end_cv);
+		}
 		return r;
 	}
 	// return NULL;
