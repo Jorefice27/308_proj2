@@ -91,7 +91,7 @@ void initThreadStuff()
 {
 	pthread_mutex_init(&mut, NULL);
 	pthread_mutex_init(&file_mut, NULL);
-  pthread_mutex_init(&account_mut);
+  pthread_mutex_init(&account_mut, NULL);
 	pthread_cond_init(&list_cv, NULL);
 	pthread_cond_init(&end_cv, NULL);
 }
@@ -229,12 +229,12 @@ void processTransactionRequest(int requestID, struct timeval t1)
 		{
 			accounts[i][0] = id;
 			accounts[i][1] = amt;
-			pthread_mutex_lock(&account_mut);
 			i++;
 			length ++;
 		}
 	}
 	insertionSort(accounts, length);
+  pthread_mutex_lock(&account_mut);
 	for(i = 0; i < length; i++)
 	{
 		orig[i][0] = accounts[i][0];
@@ -276,10 +276,7 @@ void processTransactionRequest(int requestID, struct timeval t1)
 		pthread_mutex_unlock(&file_mut);
 	}
 	//unlock the mutexes
-	for(i = 0; i < length; i++)
-	{
-		pthread_mutex_unlock(&account_mut);
-	}
+	pthread_mutex_unlock(&account_mut);
 }
 
 void insertionSort(int accounts[10][2], int length)
