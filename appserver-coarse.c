@@ -15,7 +15,7 @@ void *mainThread(void *);
 pthread_cond_t list_cv;
 pthread_cond_t end_cv;
 pthread_mutex_t mut;
-pthread_mutex_t *account_muts;
+pthread_mutex_t account_mut;
 pthread_mutex_t *thread_status;
 pthread_mutex_t file_mut;
 int j;
@@ -61,7 +61,6 @@ int main(int argc, char **argv)
 	fp = fopen(filename, "w");
 	fclose(fp);
 
-	account_muts = malloc(sizeof(*account_muts) * numAccounts);
 	initThreadStuff();
 	pthread_t worker_tid[numWorkers];
   pthread_t main_tid;
@@ -92,13 +91,9 @@ void initThreadStuff()
 {
 	pthread_mutex_init(&mut, NULL);
 	pthread_mutex_init(&file_mut, NULL);
+  pthread_mutex_init(&account_mut);
 	pthread_cond_init(&list_cv, NULL);
 	pthread_cond_init(&end_cv, NULL);
-	int i;
-	for(i = 0; i < numAccounts; i++)
-	{
-		pthread_mutex_init(&account_muts[i], NULL);
-	}
 }
 
 void *mainThread(void *arg)
@@ -183,9 +178,9 @@ void processCheckRequest(int requestID, char *accountId, struct timeval t1)
     int id = atoi(accountId);
 		if(id > 0 && id <= numAccounts)
 		{
-			pthread_mutex_lock(&account_muts[id-1]);
+			pthread_mutex_lock(&account_mut);
 	    int bal = read_account(id);
-			pthread_mutex_unlock(&account_muts[id-1]);
+			pthread_mutex_unlock(&account_mut);
 			struct timeval t2;
 			gettimeofday(&t2, NULL);
 			double t = t2.tv_sec + ((double) t2.tv_usec / 1000000);
@@ -234,7 +229,7 @@ void processTransactionRequest(int requestID, struct timeval t1)
 		{
 			accounts[i][0] = id;
 			accounts[i][1] = amt;
-			pthread_mutex_lock(&account_muts[accounts[i][0]-1]);
+			pthread_mutex_lock(&account_mut);
 			i++;
 			length ++;
 		}
@@ -283,7 +278,7 @@ void processTransactionRequest(int requestID, struct timeval t1)
 	//unlock the mutexes
 	for(i = 0; i < length; i++)
 	{
-		pthread_mutex_unlock(&account_muts[accounts[i][0]-1]);
+		pthread_mutex_unlock(&account_mut);
 	}
 }
 
