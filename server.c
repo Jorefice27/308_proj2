@@ -10,27 +10,6 @@
 
 /*
 *	Make sure to add some validation for unexpected inputs later on
-* Check if I need to allow a single TRANS to affect the same account multiple times
-* Will I need to do anything to prevent writter starvation with the linked list?
-
-* Basic strategy is to make a struct that has its own mutext and that'll have the
-* account number in it. Then only access the accounts through that
-*/
-
-/*
-	User types in END
-	While in main thread ends
-	main =>
-	pthread_cond_wait(&end_cv);
-	exit(0)
-	pop =>
-	if(head.requestID == 0 && end) pthread_cond_broadcast(&end_cv);
-
-	How to make sure end doesn't exit until AFTER the request is finished?
-	give each thread a boolean value that's set when it's working.
-	If the list is empty && the user has typed in end, we can start killing
-	off every thread that isn't currently processing a request
-	https://stackoverflow.com/questions/13285375/how-to-kill-a-running-thread
 */
 
 
@@ -136,7 +115,6 @@ void *mainThread(void *arg)
 		account_ids[i] = i + 1;
 	}
 
-	printf("Enter requests below\n");
 	while(true)
 	{
 		char* input = (char*) malloc(REQUEST_SIZE);
@@ -154,7 +132,6 @@ void *mainThread(void *arg)
   		pthread_mutex_lock(&mut);
   		addToEnd(&head, ++numRequests, numArgs, request);
   		pthread_mutex_unlock(&mut);
-		  // printf("Request ID %d is %s\n", head.next->requestID, head.next->request);
     }
 
 		free(input);
@@ -178,7 +155,6 @@ void *processRequest(void *arg)
 {
 	int i;
 	int id = *((int *) arg);
-	printf("thread %d starting\n", id);
 	while(true)
 	{
 		pthread_mutex_lock(&mut);
@@ -190,7 +166,6 @@ void *processRequest(void *arg)
 		pthread_mutex_lock(&thread_status[id]);
 		Request r = pop(&head);
 		pthread_mutex_unlock(&mut);
-		printf("thread %d handling request %d\n", id, r.requestID);
     char *token = strtok(r.request, " ");
     if(strcmp(token, "CHECK") == 0 && r.numArgs == 2)
     {
@@ -211,11 +186,9 @@ void processCheckRequest(int requestID, char *accountId, struct timeval t1)
     int id = atoi(accountId);
 		if(id > 0 && id <= numAccounts)
 		{
-			printf("Locking account %d\n", id);
 			pthread_mutex_lock(&account_muts[id-1]);
 	    int bal = read_account(id);
 			pthread_mutex_unlock(&account_muts[id-1]);
-			printf("Unlocking account %d\n", id);
 			struct timeval t2;
 			gettimeofday(&t2, NULL);
 			double t = t2.tv_sec + ((double) t2.tv_usec / 1000000);
@@ -258,10 +231,8 @@ void processTransactionRequest(int requestID, struct timeval t1)
 		{
 			accounts[i][0] = id;
 			accounts[i][1] = amt;
-			printf("accounts[%d][0] == %d\n", i, accounts[i][0]);
 			pthread_mutex_lock(&account_muts[accounts[i][0]-1]);
 			i++;
-			printf("Locked account %d\n", i);
 			length ++;
 		}
 	}
@@ -271,7 +242,6 @@ void processTransactionRequest(int requestID, struct timeval t1)
 		orig[i][0] = accounts[i][0];
 		int bal = read_account(accounts[i][0]);
 		orig[i][1] = bal;
-		printf("Account %d has an original balance of %d and we're about to add %d\n", orig[i][0], orig[i][1], accounts[i][1]);
 		bal += accounts[i][1];
 		if(bal <= 0)
 		{
