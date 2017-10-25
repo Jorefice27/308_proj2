@@ -10,6 +10,9 @@
 
 /*
 *	Make sure to add some validation for unexpected inputs later on
+* Figure out why you're getting random segmentation faults after entering END
+* Probably has something to do with bad input?
+* Or it seems to happen when there are two TRANS requests followed by a CHECK
 */
 
 
@@ -137,15 +140,15 @@ void *mainThread(void *arg)
 		free(input);
 	}
 
-	printf("No more user input will be accepted but all submitted requests will be completed.\n");
+	printf("No more user input will be accepted but all %d remaining requests will be completed.\n", head.requestID);
 	while(head.requestID != 0)
 	{
 		pthread_cond_wait(&end_cv, &mut);
 	}
-
 	for(i = 0; i < numWorkers; i++)
 	{
 		pthread_mutex_lock(&thread_status[i]);
+		printf("Locked thread %d\n", i+1);
 	}
 	printf("All requests have been completed. Server closing.\n");
 	exit(0);
@@ -153,16 +156,18 @@ void *mainThread(void *arg)
 
 void *processRequest(void *arg)
 {
+	usleep(10000000);
 	int i;
 	int id = *((int *) arg);
 	while(true)
 	{
-		pthread_mutex_lock(&mut);
+		// pthread_mutex_lock(&mut);
 		while(head.requestID == 0)
 		{
-			pthread_mutex_unlock(&mut);
+			// pthread_mutex_unlock(&mut);
 			pthread_cond_wait(&list_cv, &mut);
 		}
+		// pthread_mutex_lock(&mut);
 		pthread_mutex_lock(&thread_status[id]);
 		Request r = pop(&head);
 		pthread_mutex_unlock(&mut);
@@ -183,6 +188,8 @@ void processCheckRequest(int requestID, char *accountId, struct timeval t1)
 {
   if(accountId != NULL)
   {
+		printf("CHECKING\n");
+		usleep(5000000);
     int id = atoi(accountId);
 		if(id > 0 && id <= numAccounts)
 		{
