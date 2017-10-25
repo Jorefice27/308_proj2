@@ -26,6 +26,7 @@ pthread_cond_t end_cv;
 pthread_mutex_t mut;
 pthread_mutex_t *account_muts;
 pthread_mutex_t *thread_status;
+pthread_mutex_t file_mut;
 int j;
 const int REQUEST_SIZE = 1000;
 int numWorkers;
@@ -65,7 +66,7 @@ int main(int argc, char **argv)
 	filename = argv[3];
 	numRequests = 0;
 	end = false;
-
+	strcat(filename, ".txt");
 	fp = fopen(filename, "w");
 	fclose(fp);
 
@@ -99,6 +100,7 @@ int main(int argc, char **argv)
 void initThreadStuff()
 {
 	pthread_mutex_init(&mut, NULL);
+	pthread_mutex_init(&file_mut, NULL);
 	pthread_cond_init(&list_cv, NULL);
 	pthread_cond_init(&end_cv, NULL);
 	int i;
@@ -156,7 +158,7 @@ void *mainThread(void *arg)
 
 void *processRequest(void *arg)
 {
-	usleep(10000000);
+	usleep(15000000);
 	int i;
 	int id = *((int *) arg);
 	while(true)
@@ -186,10 +188,9 @@ void *processRequest(void *arg)
 
 void processCheckRequest(int requestID, char *accountId, struct timeval t1)
 {
+	usleep(8000000);
   if(accountId != NULL)
   {
-		printf("CHECKING\n");
-		usleep(5000000);
     int id = atoi(accountId);
 		if(id > 0 && id <= numAccounts)
 		{
@@ -201,15 +202,18 @@ void processCheckRequest(int requestID, char *accountId, struct timeval t1)
 			double t = t2.tv_sec + ((double) t2.tv_usec / 1000000);
 			t -= t1.tv_sec;
 			t -= ((double) t1.tv_usec / 1000000);
+			pthread_mutex_lock(&file_mut);
 			fp = fopen(filename, "a");
-			fprintf(fp, "<%d> BAL <$%d> TIME %f\n", requestID, bal, t);
+			fprintf(fp, "<%d> BAL $%d TIME %f\n", requestID, bal, t);
 			fclose(fp);
+			pthread_mutex_unlock(&file_mut);
 		}
   }
 }
 
 void processTransactionRequest(int requestID, struct timeval t1)
 {
+	usleep(2000000);
 	int orig[10][2];
 	int accounts[10][2]; //probably sort this list to avoid deadlock
 	int i = 0;
@@ -221,6 +225,10 @@ void processTransactionRequest(int requestID, struct timeval t1)
 	{
 		int id = atoi(token);
 		token = strtok(NULL, " ");
+		if(token == NULL)
+		{
+			break;
+		}
 		int amt = atoi(token);
 		token = strtok(NULL, " ");
 		int j;
@@ -270,15 +278,19 @@ void processTransactionRequest(int requestID, struct timeval t1)
 		{
 			write_account(orig[i][0], orig[i][1]);
 		}
+		pthread_mutex_lock(&file_mut);
 		fp = fopen(filename, "a");
 		fprintf(fp, "<%d> ISF <%d> TIME %f\n", requestID, err, t);
 		fclose(fp);
+		pthread_mutex_unlock(&file_mut);
 	}
 	else
 	{
+		pthread_mutex_lock(&file_mut);
 		fp = fopen(filename, "a");
 		fprintf(fp, "<%d> OK TIME %f\n", requestID, t);
 		fclose(fp);
+		pthread_mutex_unlock(&file_mut);
 	}
 	//unlock the mutexes
 	for(i = 0; i < length; i++)
@@ -353,9 +365,6 @@ void addToEnd(Request *head, int id, int numArgs, char* request)
 	temp->next = head;
 	head->prev = temp;
 	head->requestID++;
-  // printf("head.next.id = %d and head.next.request = %s\n", head->next->requestID, head->next->request);
-	// printf("head.prev.id = %d and head.prev.request = %s\n", head->prev->requestID, head->prev->request);
-
 }
 
 void addToEmpty(Request *head, int id, int numArgs, char* request)
@@ -373,8 +382,6 @@ void addToEmpty(Request *head, int id, int numArgs, char* request)
 	temp->prev = head;
 	head->requestID++;
 	pthread_cond_broadcast(&list_cv);
-  // printf("head.next.id = %d and head.next.request = %s\n", head->next->requestID, head->next->request);
-	// printf("head.prev.id = %d and head.prev.request = %s\n", head->prev->requestID, head->prev->request);
 }
 
 Request pop(Request *head)
@@ -392,5 +399,4 @@ Request pop(Request *head)
 		}
 		return r;
 	}
-	// return NULL;
 }
